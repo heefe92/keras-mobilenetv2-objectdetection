@@ -15,8 +15,8 @@ import utils
 
 class Detector:
     def __init__(self):
-        self.batch_size = 32
-        self.gpus = 2
+        self.batch_size = 4
+        self.gpus = 1
         self.anchors = [21,38, 42,92, 58,191, 95,262, 117,119, 147,297, 221,350, 247,195, 353,357]
         self.labels = ["person","car","bus"]
         grid_scale = 1
@@ -43,7 +43,6 @@ class Detector:
         if self.gpus>1:
             with tf.device('/cpu:0'):
                 self.train_model, self.infer_model = self.HeeNet(
-                    input_shape=(416, 416, 3),
                     nb_class=len(self.labels),
                     anchors=self.anchors,
                     max_box_per_image=self.max_box_per_image,
@@ -59,7 +58,6 @@ class Detector:
             self.train_model = multi_gpu_model(self.train_model,gpus=self.gpus)
         else:
             self.train_model, self.infer_model = self.HeeNet(
-                    input_shape=(416, 416, 3),
                     nb_class=len(self.labels),
                     anchors=self.anchors,
                     max_box_per_image=self.max_box_per_image,
@@ -171,7 +169,6 @@ class Detector:
         return add([skip_connection, x]) if do_skip else x
 
     def HeeNet(self,
-               input_shape,
                anchors,
                nb_class,
                max_box_per_image,
@@ -185,7 +182,7 @@ class Detector:
                class_scale,
                alpha=1.0,
                ):
-        img_input = Input(shape=input_shape)
+        img_input = Input(shape=(None, None, 3))
         ground_truth= Input(shape=(None, None, len(anchors)//2, 4 + 1 + nb_class))# grid_h, grid_w, nb_anchor, 5+nb_class
         true_boxes=Input(shape=(1, 1, 1, max_box_per_image, 4))
 
@@ -283,8 +280,8 @@ class Detector:
         return tf.sqrt(tf.reduce_sum(y_pred))
 
     def DoTrain(self):
-        self.train_model.load_weights("../data/voc2012_2/train/notop.h5", by_name=True)
-        #self.train_model.load_weights("notop.h5", by_name=True)
+        #self.train_model.load_weights("../data/voc2012_2/train/notop.h5", by_name=True)
+        self.train_model.load_weights("epoch_9.h5", by_name=True)
 
         learning_rate=1e-4
         optimizer = Adam(lr=learning_rate, clipnorm=0.001)
@@ -316,8 +313,8 @@ class Detector:
             downsample=32,  # ratio between network input's size and network output's size, 32 for YOLOv3
             max_box_per_image=self.max_box_per_image,
             batch_size=int(self.batch_size),
-            min_net_size=416,
-            max_net_size=416,
+            min_net_size=416-64,
+            max_net_size=416+64,
             shuffle=True,
             jitter=0.3,
             norm=self.normalize)
@@ -351,31 +348,37 @@ class Detector:
         obj_thresh, nms_thresh = 0.5, 0.45
         print(self.train_ints[0])
 
-
-        image = cv2.imread('/home/heecheol/Dataset/VOC2012/JPEGImages/2011_002822.jpg')
-
-        image_h, image_w, _ = image.shape
-
-        new_image = utils.preprocess_input(image, 416, 416)
-        new_image = np.expand_dims(new_image, 0)
-
+        import time
+        for i in range(20):
+            img_name ='/home/heecheol/Dataset/KNU_Campus/20180312_171706/20180312_171706_'
+            num = str(i)
+            while len(num)<4:
+                num= '0'+num
 
 
-        pred = self.infer_model.predict(new_image)
-        boxes = []
+            #image = cv2.imread(self.valid_ints[i]['filename'])
 
-        boxes += utils.decode_netout(pred[0], self.anchors, obj_thresh, nms_thresh, 416, 416)
-        print(boxes)
-        # correct the sizes of the bounding boxes
-        utils.correct_yolo_boxes(boxes, image_h, image_w, 416, 416)
+            image = cv2.imread(img_name+num+'.jpg')
+            image_h, image_w, _ = image.shape
 
-        # suppress non-maximal boxes
-        utils.do_nms(boxes, nms_thresh)
+            new_image = utils.preprocess_input(image, 416, 416)
+            new_image = np.expand_dims(new_image, 0)
 
-        # draw bounding boxes on the image using labels
-        utils.draw_boxes(image, boxes, self.labels, obj_thresh)
+            start_time= time.time()
+            pred = self.infer_model.predict(new_image)
+            print(time.time()-start_time)
+            boxes = []
 
-        cv2.imwrite('testttt'+str(0)+'.jpg',image)
+            boxes += utils.decode_netout(pred[0], self.anchors, obj_thresh, nms_thresh, 832, 832)
+            # correct the sizes of the bounding boxes
+            utils.correct_yolo_boxes(boxes, image_h, image_w, 832, 832)
+
+            # suppress non-maximal boxes
+            utils.do_nms(boxes, nms_thresh)
+
+            # draw bounding boxes on the image using labels
+            utils.draw_boxes(image, boxes, self.labels, obj_thresh)
+            cv2.imwrite('vali_img_'+str(i)+'.jpg',image)
 
 
     def normalize(self, image):
